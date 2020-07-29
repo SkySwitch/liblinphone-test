@@ -28,6 +28,7 @@
 #include <CoreLocation/CoreLocation.h>
 #include <notify_keys.h>
 #include <belr/grammarbuilder.h>
+#include <AVFoundation/AVAudioSession.h>
 
 #include "linphone/utils/general.h"
 #include "linphone/utils/utils.h"
@@ -51,9 +52,7 @@ LINPHONE_BEGIN_NAMESPACE
 class IosPlatformHelpers : public GenericPlatformHelpers {
 public:
 	IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> core, void *systemContext);
-	~IosPlatformHelpers (){
-		[mAppDelegate dealloc];
-	}
+	~IosPlatformHelpers () = default;
 
 	void acquireWifiLock () override {}
 	void releaseWifiLock () override {}
@@ -74,7 +73,7 @@ public:
 	void setWifiSSID(const string &ssid) override;
 
 	void setVideoPreviewWindow (void *windowId) override {}
-	string getDownloadPath () override {return Utils::getEmptyConstRefObject<string>();}
+	string getDownloadPath () override;
 	void setVideoWindow (void *windowId) override {}
 	void resizeVideoPreview (int width, int height) override {}
 
@@ -90,11 +89,15 @@ public:
 
 	void startAudioForEchoTestOrCalibration () override;
 	void stopAudioForEchoTestOrCalibration () override;
-
+	
 	//IosHelper specific
 	bool isReachable(SCNetworkReachabilityFlags flags);
 	void networkChangeCallback(void);
 	void onNetworkChanged(bool reachable, bool force);
+
+	void didRegisterForRemotePush(void *token) override;
+	void start (std::shared_ptr<LinphonePrivate::Core> core) override;
+	void stop (void) override;
 
 private:
 	string toUTF8String(CFStringRef str);
@@ -112,7 +115,11 @@ private:
 	SCNetworkReachabilityFlags mCurrentFlags = 0;
 	bool mNetworkMonitoringEnabled = false;
 	static const string Framework;
-	IosAppDelegate *mAppDelegate;
+
+	IosAppDelegate *mAppDelegate = NULL; /* auto didEnterBackground/didEnterForeground and other callbacks */
+	bool mStart = false; /* generic platformhelper's funcs only work when mStart is true */
+	bool mUseAppDelgate = false; /* app delegate is only used by main core*/
+	NSTimer* mIterateTimer = NULL;
 };
 
 static void sNetworkChangeCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo);
@@ -122,13 +129,19 @@ static void sNetworkChangeCallback(CFNotificationCenterRef center, void *observe
 const string IosPlatformHelpers::Framework = "org.linphone.linphone";
 
 IosPlatformHelpers::IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> core, void *systemContext) : GenericPlatformHelpers(core) {
+	mUseAppDelgate = core->getCCore()->is_main_core && !linphone_config_get_int(core->getCCore()->config, "tester", "test_env", false);
+	if (mUseAppDelgate) {
+		mAppDelegate = [[IosAppDelegate alloc] init];
+		[mAppDelegate configure:core];
+	}
+	ms_message("IosPlatformHelpers is fully initialised");
+}
+
+void IosPlatformHelpers::start (std::shared_ptr<LinphonePrivate::Core> core) {
 	mCpuLockCount = 0;
 	mCpuLockTaskId = 0;
 	mNetworkReachable = 0; // wait until monitor to give a status;
 	mSharedCoreHelpers = createIosSharedCoreHelpers(core);
-
-	mAppDelegate = [[IosAppDelegate alloc] init];
-	[mAppDelegate setCore:core];
 
 	string cpimPath = getResourceDirPath(Framework, "cpim_grammar");
 	if (!cpimPath.empty())
@@ -151,13 +164,22 @@ IosPlatformHelpers::IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> c
 	else
 		ms_message("IosPlatformHelpers did not find vcard grammar resource directory...");
 #endif
-    
+
     [NSNotificationCenter.defaultCenter addObserver:mAppDelegate
      selector:@selector(reloadDeviceOnRouteChangeCallback:)
      name:AVAudioSessionRouteChangeNotification
      object:nil];
-    
-	ms_message("IosPlatformHelpers is fully initialised");
+	ms_message("IosPlatformHelpers is fully started");
+	mStart = true;
+}
+
+void IosPlatformHelpers::stop () {
+	mStart = false;
+	ms_message("IosPlatformHelpers is fully stopped");
+}
+
+void IosPlatformHelpers::didRegisterForRemotePush(void *token) {
+	[mAppDelegate didRegisterForRemotePush:(NSData *)token];
 }
 
 //Safely get an UTF-8 string from the given CFStringRef
@@ -197,6 +219,8 @@ void IosPlatformHelpers::sBgTaskTimeout (void *data) {
 // -----------------------------------------------------------------------------
 
 void IosPlatformHelpers::acquireCpuLock () {
+	if (!mStart) return;
+
 	// on iOS, cpu lock is implemented by a long running task and it is abstracted by belle-sip, so let's use belle-sip directly.
 	if (mCpuLockCount == 0)
 		mCpuLockTaskId = static_cast<long>(belle_sip_begin_background_task("Liblinphone cpu lock", sBgTaskTimeout, this));
@@ -205,6 +229,8 @@ void IosPlatformHelpers::acquireCpuLock () {
 }
 
 void IosPlatformHelpers::releaseCpuLock () {
+	if (!mStart) return;
+
 	mCpuLockCount--;
 	if (mCpuLockCount != 0)
 		return;
@@ -221,19 +247,31 @@ void IosPlatformHelpers::releaseCpuLock () {
 // -----------------------------------------------------------------------------
 
 string IosPlatformHelpers::getDataResource (const string &filename) const {
-	return getResourcePath(Framework, filename);
+	if (mStart)
+		return getResourcePath(Framework, filename);
+
+	return "";
 }
 
 string IosPlatformHelpers::getImageResource (const string &filename) const {
-	return getResourcePath(Framework, filename);
+	if (mStart)
+		return getResourcePath(Framework, filename);
+
+	return "";
 }
 
 string IosPlatformHelpers::getRingResource (const string &filename) const {
-	return getResourcePath(Framework, filename);
+	if (mStart)
+		return getResourcePath(Framework, filename);
+
+	return "";
 }
 
 string IosPlatformHelpers::getSoundResource (const string &filename) const {
-	return getResourcePath(Framework, filename);
+	if (mStart)
+		return getResourcePath(Framework, filename);
+
+	return "";
 }
 
 // -----------------------------------------------------------------------------
@@ -264,21 +302,56 @@ string IosPlatformHelpers::getResourcePath (const string &framework, const strin
 }
 
 void *IosPlatformHelpers::getPathContext () {
-	return getSharedCoreHelpers()->getPathContext();
+	if (mStart)
+		return getSharedCoreHelpers()->getPathContext();
+
+	return NULL;
+}
+
+string IosPlatformHelpers::getDownloadPath() {
+	if (mStart)
+		return Utils::getEmptyConstRefObject<string>();
+
+	return "";
 }
 
 void IosPlatformHelpers::onLinphoneCoreStart(bool monitoringEnabled) {
+	if (!mStart) return;
+
 	mNetworkMonitoringEnabled = monitoringEnabled;
 	if (monitoringEnabled) {
 		startNetworkMonitoring();
-		[mAppDelegate onLinphoneCoreStart];
+	}
+
+	if (mUseAppDelgate) {
+		if (linphone_core_is_auto_iterate_enabled(getCore()->getCCore())) {
+			if (mIterateTimer && mIterateTimer.valid) {
+				ms_message("[IosPlatformHelpers] core.iterate() is already scheduled");
+				return;
+			}
+			mIterateTimer = [NSTimer timerWithTimeInterval:0.02 target:mAppDelegate selector:@selector(iterate) userInfo:nil repeats:YES];
+			// NSTimer runs only in the main thread correctly. Since there may not be a current thread loop.
+			[[NSRunLoop mainRunLoop] addTimer:mIterateTimer forMode:NSDefaultRunLoopMode];
+			ms_message("[IosPlatformHelpers] Call to core.iterate() scheduled every 20ms");
+		} else {
+			ms_warning("[IosPlatformHelpers] Auto core.iterate() isn't enabled, ensure you do it in your application!");
+		}
 	}
 }
 
 void IosPlatformHelpers::onLinphoneCoreStop() {
+	if (!mStart) return;
+
 	if (mNetworkMonitoringEnabled) {
 		stopNetworkMonitoring();
-		[mAppDelegate onLinphoneCoreStop];
+	}
+
+	if (mUseAppDelgate && linphone_core_is_auto_iterate_enabled(getCore()->getCCore())) {
+		if (mIterateTimer) {
+			[mIterateTimer invalidate];
+			mIterateTimer = NULL;
+		}
+		ms_message("[IosPlatformHelpers] Auto core.iterate() stopped");
 	}
 
 	getSharedCoreHelpers()->onLinphoneCoreStop();
@@ -293,6 +366,8 @@ void IosPlatformHelpers::stopAudioForEchoTestOrCalibration () {
 }
 
 void IosPlatformHelpers::onWifiOnlyEnabled(bool enabled) {
+	if (!mStart) return;
+
 	mWifiOnly = enabled;
 	if (isNetworkReachable()) {
 		//Nothing to do if we have no connection
@@ -308,6 +383,8 @@ void IosPlatformHelpers::setDnsServers () {
 
 //Set proxy settings on core
 void IosPlatformHelpers::setHttpProxy (const string &host, int port) {
+	if (!mStart) return;
+
 	linphone_core_set_http_proxy_host(getCore()->getCCore(), host.c_str());
 	linphone_core_set_http_proxy_port(getCore()->getCCore(), port);
 }
@@ -377,6 +454,8 @@ static void showNetworkFlags(SCNetworkReachabilityFlags flags) {
 }
 
 bool IosPlatformHelpers::startNetworkMonitoring(void) {
+	if (!mStart) return false;
+
 	if (reachabilityRef != NULL) {
 		stopNetworkMonitoring();
 	}
@@ -402,6 +481,8 @@ bool IosPlatformHelpers::startNetworkMonitoring(void) {
 }
 
 void IosPlatformHelpers::stopNetworkMonitoring(void) {
+	if (!mStart) return;
+
 	if (reachabilityRef) {
 		CFRelease(reachabilityRef);
 		reachabilityRef = NULL;
@@ -422,6 +503,8 @@ static void sNetworkChangeCallback(CFNotificationCenterRef center, void *observe
 }
 
 void IosPlatformHelpers::networkChangeCallback() {
+	if (!mStart) return;
+
 	//We receive this notification multiple time for possibly unknown reasons
 	//So take actions only if state changed of our internal network-related properties
 
@@ -491,26 +574,29 @@ void IosPlatformHelpers::networkChangeCallback() {
 
 //Get reachability state from given flags
 bool IosPlatformHelpers::isReachable(SCNetworkReachabilityFlags flags) {
-	if (flags) {
-		if (flags & kSCNetworkReachabilityFlagsConnectionOnDemand) {
-			//Assume unreachable for now. Wait for kickoff and for later network change events
-			kickOffConnectivity();
+	if (mStart) {
+		if (flags) {
+			if (flags & kSCNetworkReachabilityFlagsConnectionOnDemand) {
+				//Assume unreachable for now. Wait for kickoff and for later network change events
+				kickOffConnectivity();
+				return false;
+			}
+			if (flags & (kSCNetworkReachabilityFlagsConnectionRequired | kSCNetworkReachabilityFlagsInterventionRequired)) {
+				return false;
+			}
+			if (!(flags & kSCNetworkReachabilityFlagsReachable)) {
+				return false;
+			}
+			bool isWifiOnly = linphone_core_wifi_only_enabled(getCore()->getCCore());
+			if (isWifiOnly && (flags & kSCNetworkReachabilityFlagsIsWWAN)) {
+				return false;
+			}
+		} else {
 			return false;
 		}
-		if (flags & (kSCNetworkReachabilityFlagsConnectionRequired | kSCNetworkReachabilityFlagsInterventionRequired)) {
-			return false;
-		}
-		if (!(flags & kSCNetworkReachabilityFlagsReachable)) {
-			return false;
-		}
-		bool isWifiOnly = linphone_core_wifi_only_enabled(getCore()->getCCore());
-		if (isWifiOnly && (flags & kSCNetworkReachabilityFlagsIsWWAN)) {
-			return false;
-		}
-	} else {
-		return false;
+		return true;
 	}
-	return true;
+	return false;
 }
 
 bool IosPlatformHelpers::isActiveNetworkWifiOnlyCompliant() const {
@@ -519,14 +605,16 @@ bool IosPlatformHelpers::isActiveNetworkWifiOnlyCompliant() const {
 
 //Method called when we detected actual network changes in callbacks
 void IosPlatformHelpers::onNetworkChanged(bool reachable, bool force) {
-	if (reachable != isNetworkReachable() || force) {
-		ms_message("Global network status changed: reachable: [%d].", (int) reachable);
-		setHttpProxy(mHttpProxyHost, mHttpProxyPort);
-		if (force && reachable){
-			//mandatory to  trigger action from the core in case of switch from 3G to wifi (both up)
-			setNetworkReachable(FALSE);
+	if (mStart) {
+		if (reachable != isNetworkReachable() || force) {
+			ms_message("Global network status changed: reachable: [%d].", (int) reachable);
+			setHttpProxy(mHttpProxyHost, mHttpProxyPort);
+			if (force && reachable){
+				//mandatory to  trigger action from the core in case of switch from 3G to wifi (both up)
+				setNetworkReachable(FALSE);
+			}
+			setNetworkReachable(reachable);
 		}
-		setNetworkReachable(reachable);
 	}
 }
 
@@ -589,51 +677,57 @@ void IosPlatformHelpers::kickOffConnectivity() {
 }
 
 void IosPlatformHelpers::setWifiSSID(const string &ssid) {
-	mCurrentSSID = ssid;
+	if (mStart) {
+		mCurrentSSID = ssid;
+	}
 }
 
 string IosPlatformHelpers::getWifiSSID(void) {
-#if TARGET_IPHONE_SIMULATOR
-	return "Sim_err_SSID_NotSupported";
-#else
-	string ssid;
-	bool shallGetWifiInfo = true;
+	if (mStart) {
+		#if TARGET_IPHONE_SIMULATOR
+			return "Sim_err_SSID_NotSupported";
+		#else
+			string ssid;
+			bool shallGetWifiInfo = true;
 
-	if (@available(iOS 13.0, *)) {
-		//Starting from IOS13 we need to check for authorization to get wifi information.
-		//User permission is asked in the main app
-		CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
-		if (status != kCLAuthorizationStatusAuthorizedAlways &&
-		    status != kCLAuthorizationStatusAuthorizedWhenInUse) {
-			shallGetWifiInfo = false;
-			ms_warning("User has not given authorization to access Wifi information (Authorization: [%d])", (int) status);
-		}
-	}
-	if (shallGetWifiInfo) {
-		CFArrayRef ifaceNames = CNCopySupportedInterfaces();
-		if (ifaceNames) {
-			CFIndex	i;
-			for (i = 0; i < CFArrayGetCount(ifaceNames); ++i) {
-				CFStringRef iface = (CFStringRef) CFArrayGetValueAtIndex(ifaceNames, i);
-				CFDictionaryRef ifaceInfo = CNCopyCurrentNetworkInfo(iface);
-
-				if (ifaceInfo != NULL && CFDictionaryGetCount(ifaceInfo) > 0) {
-					CFStringRef ifaceSSID = (CFStringRef) CFDictionaryGetValue(ifaceInfo, kCNNetworkInfoKeySSID);
-					if (ifaceSSID != NULL) {
-						ssid = toUTF8String(ifaceSSID);
-						if (!ssid.empty()) {
-							CFRelease(ifaceInfo);
-							break;
-						}
-					}
-					CFRelease(ifaceInfo);
+			if (@available(iOS 13.0, *)) {
+				//Starting from IOS13 we need to check for authorization to get wifi information.
+				//User permission is asked in the main app
+				CLAuthorizationStatus status = [CLLocationManager authorizationStatus];
+				if (status != kCLAuthorizationStatusAuthorizedAlways &&
+					status != kCLAuthorizationStatusAuthorizedWhenInUse) {
+					shallGetWifiInfo = false;
+					ms_warning("User has not given authorization to access Wifi information (Authorization: [%d])", (int) status);
 				}
 			}
-		}
-		CFRelease(ifaceNames);
+			if (shallGetWifiInfo) {
+				CFArrayRef ifaceNames = CNCopySupportedInterfaces();
+				if (ifaceNames) {
+					CFIndex	i;
+					for (i = 0; i < CFArrayGetCount(ifaceNames); ++i) {
+						CFStringRef iface = (CFStringRef) CFArrayGetValueAtIndex(ifaceNames, i);
+						CFDictionaryRef ifaceInfo = CNCopyCurrentNetworkInfo(iface);
+
+						if (ifaceInfo != NULL && CFDictionaryGetCount(ifaceInfo) > 0) {
+							CFStringRef ifaceSSID = (CFStringRef) CFDictionaryGetValue(ifaceInfo, kCNNetworkInfoKeySSID);
+							if (ifaceSSID != NULL) {
+								ssid = toUTF8String(ifaceSSID);
+								if (!ssid.empty()) {
+									CFRelease(ifaceInfo);
+									break;
+								}
+							}
+							CFRelease(ifaceInfo);
+						}
+					}
+				}
+				CFRelease(ifaceNames);
+			}
+			return ssid;
+		#endif
 	}
-	return ssid;
-#endif
+	
+	return "";
 }
 
 // -----------------------------------------------------------------------------
