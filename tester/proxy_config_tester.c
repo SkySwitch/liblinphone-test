@@ -555,13 +555,22 @@ static void proxy_config_push_notification_scenario_1(bool_t use_legacy_format, 
 	}
 
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_enabled(marie->lc));
+#endif
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 	if (multi_config) {
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// First: enable push
@@ -570,23 +579,41 @@ static void proxy_config_push_notification_scenario_1(bool_t use_legacy_format, 
 	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#endif
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 	if (multi_config) {
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Second: configure push informations
 	linphone_core_update_push_notification_information(marie->lc, "test-app-id", "test-push-token");
-	// Nothing should happen, push aren't allowed on proxy config
-	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+	// Push auto set fot android and ios. Otherwise nothing should happen, push aren't allowed on proxy config
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+	BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#endif
 	BC_ASSERT_TRUE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 	if (multi_config) {
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Third: allow push notification on proxy config
@@ -623,8 +650,13 @@ static void proxy_config_push_notification_scenario_1(bool_t use_legacy_format, 
 
 	BC_ASSERT_TRUE(wait_for_until(marie->lc, NULL, &marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count+1, 10000));
 	if (multi_config && !both_push) {
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Fourth: disallow push notification on proxy config
@@ -639,8 +671,18 @@ static void proxy_config_push_notification_scenario_1(bool_t use_legacy_format, 
 	BC_ASSERT_TRUE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_TRUE(wait_for_until(marie->lc, NULL, &marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count+2, 10000));
 	if (multi_config) {
-		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
-		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+		if (!both_push) {
+#if __ANDROID__ || TARGET_OS_IPHONE
+			BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
+			BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
+		} else {
+			BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+		}
 	}
 
 	linphone_core_manager_destroy(marie);
@@ -672,13 +714,22 @@ static void proxy_config_push_notification_scenario_2(bool_t use_legacy_format, 
 	}
 
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_enabled(marie->lc));
+#endif
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 	if (multi_config) {
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// First: enable push
@@ -687,11 +738,19 @@ static void proxy_config_push_notification_scenario_2(bool_t use_legacy_format, 
 	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#endif
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 	if (multi_config) {
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Second: allow push notification on proxy config
@@ -742,8 +801,13 @@ static void proxy_config_push_notification_scenario_2(bool_t use_legacy_format, 
 
 	BC_ASSERT_TRUE(wait_for_until(marie->lc, NULL, &marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count+1, 10000));
 	if (multi_config && !both_push) {
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Fourth: disable push notification on core
@@ -758,7 +822,11 @@ static void proxy_config_push_notification_scenario_2(bool_t use_legacy_format, 
 		if (both_push)
 			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
 		else
+#if __ANDROID__ || TARGET_OS_IPHONE
+			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 	
 	linphone_core_manager_destroy(marie);
@@ -790,12 +858,22 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 	}
 
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#else
 	BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#endif
 	if (multi_config) {
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+	}
+	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
+#else
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
 	}
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_enabled(marie->lc));
+#endif
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
 
@@ -807,7 +885,11 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 	}
 	// Nothing should happen, push aren't enabled at core level
 	BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg));
+#if __ANDROID__ || TARGET_OS_IPHONE
+	BC_ASSERT_TRUE(linphone_core_is_push_notification_enabled(marie->lc));
+#else
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_enabled(marie->lc));
+#endif
 	BC_ASSERT_FALSE(linphone_core_is_push_notification_available(marie->lc));
 	BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg));
 	BC_ASSERT_EQUAL(marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count, int, "%i");
@@ -816,7 +898,11 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 		if (both_push)
 			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
 		else
+#if __ANDROID__ || TARGET_OS_IPHONE
+			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Second: enable push
@@ -832,7 +918,11 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 		if (both_push)
 			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
 		else
+#if __ANDROID__ || TARGET_OS_IPHONE
+			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Third: configure push informations
@@ -866,8 +956,13 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 
 	BC_ASSERT_TRUE(wait_for_until(marie->lc, NULL, &marie->stat.number_of_LinphoneRegistrationOk, proxy_config_count+1, 10000));
 	if (multi_config && !both_push) {
+#if __ANDROID__ || TARGET_OS_IPHONE
+		BC_ASSERT_PTR_NOT_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
+		BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 		BC_ASSERT_PTR_NULL(linphone_proxy_config_get_contact_uri_parameters(marie_cfg_2));
 		BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 
 	// Fourth: update push information with null
@@ -882,7 +977,11 @@ static void proxy_config_push_notification_scenario_3(bool_t use_legacy_format, 
 		if (both_push)
 			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
 		else
+#if __ANDROID__ || TARGET_OS_IPHONE
+			BC_ASSERT_TRUE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#else
 			BC_ASSERT_FALSE(linphone_proxy_config_is_push_notification_allowed(marie_cfg_2));
+#endif
 	}
 	
 	linphone_core_manager_destroy(marie);
