@@ -2658,8 +2658,14 @@ bool_t linphone_core_is_push_notification_available(LinphoneCore *core) {
 }
 
 void linphone_core_update_push_notification_information(LinphoneCore *core, const char *param, const char *prid) {
-	linphone_push_notification_config_set_param(core->push_cfg, param);
-	linphone_push_notification_config_set_prid(core->push_cfg, prid);
+	if (param)
+		linphone_push_notification_config_set_param(core->push_cfg, param);
+	else
+		linphone_push_notification_config_set_param(core->push_cfg, "");
+	if (prid)
+		linphone_push_notification_config_set_prid(core->push_cfg, prid);
+	else
+		linphone_push_notification_config_set_prid(core->push_cfg, "");
 	ms_message("Push notification information updated: param [%s], prid [%s]", param, prid);
 	linphone_core_update_proxy_config_push_params(core);
 }

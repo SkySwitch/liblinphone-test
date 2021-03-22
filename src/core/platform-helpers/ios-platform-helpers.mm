@@ -52,7 +52,9 @@ LINPHONE_BEGIN_NAMESPACE
 class IosPlatformHelpers : public GenericPlatformHelpers {
 public:
 	IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> core, void *systemContext);
-	~IosPlatformHelpers () = default;
+	~IosPlatformHelpers (){
+		[mAppDelegate dealloc];
+	}
 
 	void acquireWifiLock () override {}
 	void releaseWifiLock () override {}
@@ -73,7 +75,7 @@ public:
 	void setWifiSSID(const string &ssid) override;
 
 	void setVideoPreviewWindow (void *windowId) override {}
-	string getDownloadPath () override;
+	string getDownloadPath () override {return Utils::getEmptyConstRefObject<string>();}
 	void setVideoWindow (void *windowId) override {}
 	void resizeVideoPreview (int width, int height) override {}
 
@@ -133,7 +135,6 @@ IosPlatformHelpers::IosPlatformHelpers (std::shared_ptr<LinphonePrivate::Core> c
 	mUseAppDelgate = core->getCCore()->is_main_core && !linphone_config_get_int(core->getCCore()->config, "tester", "test_env", false);
 	if (mUseAppDelgate) {
 		mAppDelegate = [[IosAppDelegate alloc] initWithCore:core];
-		[mAppDelegate configure:core]; // todo
 	}
 	ms_message("IosPlatformHelpers is fully initialised");
 }
@@ -144,6 +145,9 @@ void IosPlatformHelpers::start (std::shared_ptr<LinphonePrivate::Core> core) {
 	mNetworkReachable = 0; // wait until monitor to give a status;
 	mSharedCoreHelpers = createIosSharedCoreHelpers(core);
 	mHandler = [[IosHandler alloc] initWithCore:core];
+	if (mUseAppDelgate) {
+		[mAppDelegate registerForPush];
+	}
 
 	string cpimPath = getResourceDirPath(Framework, "cpim_grammar");
 	if (!cpimPath.empty())
@@ -164,7 +168,6 @@ void IosPlatformHelpers::start (std::shared_ptr<LinphonePrivate::Core> core) {
 	else
 		ms_message("IosPlatformHelpers did not find vcard grammar resource directory...");
 #endif
-
 
 	ms_message("IosPlatformHelpers is fully started");
 	mStart = true;
@@ -219,52 +222,44 @@ void IosPlatformHelpers::acquireCpuLock () {
 	if (!mStart) return;
 
 	// on iOS, cpu lock is implemented by a long running task and it is abstracted by belle-sip, so let's use belle-sip directly.
-	if (mCpuLockCount == 0) {
+	if (mCpuLockCount == 0)
 		mCpuLockTaskId = static_cast<long>(belle_sip_begin_background_task("Liblinphone cpu lock", sBgTaskTimeout, this));
 
-		mCpuLockCount++;
-	}
+	mCpuLockCount++;
 }
 
 void IosPlatformHelpers::releaseCpuLock () {
 	if (!mStart) return;
 
 	mCpuLockCount--;
-	if (mCpuLockCount != 0) {
+	if (mCpuLockCount != 0)
 		return;
-		belle_sip_end_background_task(static_cast<unsigned long>(mCpuLockTaskId));
-		mCpuLockTaskId = 0;
+
+	if (mCpuLockTaskId == 0) {
+		ms_error("IosPlatformHelpers::releaseCpuLock(): too late, the lock has been released already by the system.");
+		return;
 	}
+
+	belle_sip_end_background_task(static_cast<unsigned long>(mCpuLockTaskId));
+	mCpuLockTaskId = 0;
 }
 
 // -----------------------------------------------------------------------------
 
 string IosPlatformHelpers::getDataResource (const string &filename) const {
-	if (mStart)
-		return getResourcePath(Framework, filename);
-
-	return "";
+	return getResourcePath(Framework, filename);
 }
 
 string IosPlatformHelpers::getImageResource (const string &filename) const {
-	if (mStart)
-		return getResourcePath(Framework, filename);
-
-	return "";
+	return getResourcePath(Framework, filename);
 }
 
 string IosPlatformHelpers::getRingResource (const string &filename) const {
-	if (mStart)
-		return getResourcePath(Framework, filename);
-
-	return "";
+	return getResourcePath(Framework, filename);
 }
 
 string IosPlatformHelpers::getSoundResource (const string &filename) const {
-	if (mStart)
-		return getResourcePath(Framework, filename);
-
-	return "";
+	return getResourcePath(Framework, filename);
 }
 
 // -----------------------------------------------------------------------------
@@ -295,17 +290,7 @@ string IosPlatformHelpers::getResourcePath (const string &framework, const strin
 }
 
 void *IosPlatformHelpers::getPathContext () {
-	if (mStart)
-		return getSharedCoreHelpers()->getPathContext();
-
-	return NULL;
-}
-
-string IosPlatformHelpers::getDownloadPath() {
-	if (mStart)
-		return Utils::getEmptyConstRefObject<string>();
-
-	return "";
+	return getSharedCoreHelpers()->getPathContext();
 }
 
 void IosPlatformHelpers::onLinphoneCoreStart(bool monitoringEnabled) {
@@ -471,8 +456,6 @@ bool IosPlatformHelpers::startNetworkMonitoring(void) {
 		//Load and trigger initial state
 		networkChangeCallback();
 		return true;
-
-	return false;
 }
 
 void IosPlatformHelpers::stopNetworkMonitoring(void) {
@@ -482,6 +465,7 @@ void IosPlatformHelpers::stopNetworkMonitoring(void) {
 		CFRelease(reachabilityRef);
 		reachabilityRef = NULL;
 	}
+	CFNotificationCenterRemoveObserver(CFNotificationCenterGetDarwinNotifyCenter(), (void *) this, CFSTR(kNotifySCNetworkChange), NULL);
 }
 
 //This callback keeps tracks of wifi SSID changes
@@ -568,7 +552,6 @@ void IosPlatformHelpers::networkChangeCallback() {
 
 //Get reachability state from given flags
 bool IosPlatformHelpers::isReachable(SCNetworkReachabilityFlags flags) {
-	if (mStart) {
 		if (flags) {
 			if (flags & kSCNetworkReachabilityFlagsConnectionOnDemand) {
 				//Assume unreachable for now. Wait for kickoff and for later network change events
@@ -590,8 +573,6 @@ bool IosPlatformHelpers::isReachable(SCNetworkReachabilityFlags flags) {
 		}
 		return true;
 	}
-	return false;
-}
 
 bool IosPlatformHelpers::isActiveNetworkWifiOnlyCompliant() const {
 	return false;
@@ -599,16 +580,14 @@ bool IosPlatformHelpers::isActiveNetworkWifiOnlyCompliant() const {
 
 //Method called when we detected actual network changes in callbacks
 void IosPlatformHelpers::onNetworkChanged(bool reachable, bool force) {
-	if (mStart) {
-		if (reachable != isNetworkReachable() || force) {
-			ms_message("Global network status changed: reachable: [%d].", (int) reachable);
-			setHttpProxy(mHttpProxyHost, mHttpProxyPort);
-			if (force && reachable){
-				//mandatory to  trigger action from the core in case of switch from 3G to wifi (both up)
-				setNetworkReachable(FALSE);
-			}
-			setNetworkReachable(reachable);
+	if (reachable != isNetworkReachable() || force) {
+		ms_message("Global network status changed: reachable: [%d].", (int) reachable);
+		setHttpProxy(mHttpProxyHost, mHttpProxyPort);
+		if (force && reachable){
+			//mandatory to  trigger action from the core in case of switch from 3G to wifi (both up)
+			setNetworkReachable(FALSE);
 		}
+		setNetworkReachable(reachable);
 	}
 }
 
@@ -671,13 +650,10 @@ void IosPlatformHelpers::kickOffConnectivity() {
 }
 
 void IosPlatformHelpers::setWifiSSID(const string &ssid) {
-	if (mStart) {
-		mCurrentSSID = ssid;
-	}
+	mCurrentSSID = ssid;
 }
 
 string IosPlatformHelpers::getWifiSSID(void) {
-	if (mStart) {
 		#if TARGET_IPHONE_SIMULATOR
 			return "Sim_err_SSID_NotSupported";
 		#else
@@ -719,9 +695,6 @@ string IosPlatformHelpers::getWifiSSID(void) {
 			}
 			return ssid;
 		#endif
-	}
-	
-	return "";
 }
 
 // -----------------------------------------------------------------------------

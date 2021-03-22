@@ -32,7 +32,7 @@ set(LINK_LIBS
 if(APPLE)
 	list(APPEND APPLE_LIBS "-framework CFNetwork -framework Foundation -framework AVFoundation -framework SystemConfiguration -framework CoreLocation")
 	if(IOS)
-		list(APPEND APPLE_LIBS "-framework UIKit -framework PushKit")
+		list(APPEND APPLE_LIBS "-framework UIKit -framework PushKit -framework CallKit")
 	endif()
 endif()
 

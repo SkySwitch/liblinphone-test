@@ -199,7 +199,7 @@ LINPHONE_PUBLIC const char *linphone_push_notification_config_get_param (const L
 /**
  * Sets the param for "contact uri parameter". If it's not set, "team_id.bundle_identifier.services" will be used.
  * @param push_cfg The #LinphonePushNotificationConfig object @notnil
- * @param param The new param set for push notification config. @notnil
+ * @param param The new param set for push notification config.@notnil
 **/
 LINPHONE_PUBLIC void linphone_push_notification_config_set_param (LinphonePushNotificationConfig *push_cfg, const char *param);
 
@@ -213,7 +213,7 @@ LINPHONE_PUBLIC const char *linphone_push_notification_config_get_prid (const Li
 /**
  * Sets the prid for "contact uri parameter". If it's not set, "voip_token&remote_token" will be used.
  * @param push_cfg The #LinphonePushNotificationConfig object @notnil
- * @param prid The new prid set for push notification config. @notnil
+ * @param prid The new prid set for push notification config.@notnil
 **/
 LINPHONE_PUBLIC void linphone_push_notification_config_set_prid (LinphonePushNotificationConfig *push_cfg, const char *prid);
 

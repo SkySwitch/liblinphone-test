@@ -79,10 +79,6 @@
 		linphone_core_iterate([self getCore]->getCCore());
 }
 
-- (void)configure:(std::shared_ptr<LinphonePrivate::Core>)core {
-	[self registerForPush];
-}
-
 - (NSString *)bundleFile:(NSString *)file {
 	return [[NSBundle mainBundle] pathForResource:[file stringByDeletingPathExtension] ofType:[file pathExtension]];
 }

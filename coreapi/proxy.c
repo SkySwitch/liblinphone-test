@@ -168,7 +168,7 @@ static void linphone_proxy_config_init(LinphoneCore* lc, LinphoneProxyConfig *cf
 
 	bool_t push_allowed_default = FALSE;
 	bool_t remote_push_allowed_default = FALSE;
-#if defined(__ANDROID__) || defined(TARGET_OS_IPHONE)
+#if defined(__ANDROID__) || TARGET_OS_IPHONE
 	push_allowed_default = TRUE;
 #endif
 	cfg->push_notification_allowed = lc ? !!linphone_config_get_default_int(lc->config, "proxy", "push_notification_allowed", push_allowed_default) : push_allowed_default;
@@ -1486,7 +1486,6 @@ static bool_t can_register(LinphoneProxyConfig *cfg){
 void linphone_proxy_config_update(LinphoneProxyConfig *cfg){
 	LinphoneCore *lc=cfg->lc;
 	if (cfg->commit){
-        linphone_proxy_config_update_push_notification_parameters(cfg);
 		if (cfg->type && cfg->ssctx==NULL){
 			linphone_proxy_config_activate_sip_setup(cfg);
 		}
@@ -1870,18 +1869,16 @@ bool_t linphone_proxy_config_is_push_notification_available(const LinphoneProxyC
 
 	bool paramAvailable = !STRING_IS_NULL(param) || !STRING_IS_NULL(bundle);
 	bool pridAvailable =!STRING_IS_NULL(prid) || !((cfg->push_notification_allowed && STRING_IS_NULL(basicToken)) || (cfg->remote_push_notification_allowed && STRING_IS_NULL(remoteToken)));
-	return paramAvailable && pridAvailable;
+	return paramAvailable && pridAvailable ;
 }
 
 void linphone_proxy_config_update_push_notification_parameters(LinphoneProxyConfig *cfg) {
-	bool_t pushReady = linphone_proxy_config_is_push_notification_available(cfg);
-	// Do not alter contact uri params if push notification not ready
-	if (pushReady) {
-		char *computedPushParams = linphone_proxy_config_get_computed_push_notification_parameters(cfg);
-		const char *contactUriParams = linphone_proxy_config_get_contact_uri_parameters(cfg);
+	char *computedPushParams = linphone_proxy_config_get_computed_push_notification_parameters(cfg);
+	const char *contactUriParams = linphone_proxy_config_get_contact_uri_parameters(cfg);
 
-		// Do not alter contact uri params for proxy config without push notification allowed
-		if (computedPushParams && cfg->lc->push_notification_enabled && (cfg->push_notification_allowed || cfg->remote_push_notification_allowed)) {
+	if (cfg->push_notification_allowed || cfg->remote_push_notification_allowed) {
+		// Do not alter contact uri params if push notification not ready
+		if (computedPushParams && cfg->lc->push_notification_enabled) {
 			if (!contactUriParams || strcmp(contactUriParams, computedPushParams) != 0) {
 				linphone_proxy_config_edit(cfg);
 				linphone_proxy_config_set_contact_uri_parameters(cfg, computedPushParams);
@@ -1896,16 +1893,22 @@ void linphone_proxy_config_update_push_notification_parameters(LinphoneProxyConf
 				ms_message("Push notification information removed from proxy config [%p]", cfg);
 			}
 		}
-
-		if (computedPushParams) {
-			ms_free(computedPushParams);
+	} else if (!cfg->push_notification_allowed && !cfg->remote_push_notification_allowed) {
+		if (contactUriParams) {
+			linphone_proxy_config_edit(cfg);
+			linphone_proxy_config_set_contact_uri_parameters(cfg, NULL);
+			linphone_proxy_config_done(cfg);
+			ms_message("Push notification information removed from proxy config [%p]", cfg);
 		}
-	} else {
-		ms_warning("Push notification information push parameters not ready");
+	}
+	if (computedPushParams) {
+		ms_free(computedPushParams);
 	}
 }
 
 char *linphone_proxy_config_get_computed_push_notification_parameters(const LinphoneProxyConfig *cfg) {
+	if (!cfg->lc->push_notification_enabled) return NULL;
+	if (!linphone_proxy_config_is_push_notification_available(cfg)) return NULL;
 	LinphonePushNotificationConfig *push_cfg = cfg->lc->push_cfg;
 	const char *provider = linphone_push_notification_config_get_provider(push_cfg);
 	bool_t use_legacy_params = !!linphone_config_get_int(cfg->lc->config, "net", "use_legacy_push_notification_params", FALSE);
@@ -1920,7 +1923,7 @@ char *linphone_proxy_config_get_computed_push_notification_parameters(const Linp
 			else
 				provider = "fcm";
 	#elif TARGET_OS_IPHONE
-			provider = "apns";
+			provider = tester_env? "apns.dev" : "apns";
 	#endif
 	}
 	if (STRING_IS_NULL(provider)) return NULL;

@@ -126,7 +126,6 @@ public:
 	void soundcardActivateAudioSession (bool active);
 	void soundcardEnableCallkit (bool enabled);
 	void soundcardAudioRouteChanged ();
-	void soundcardConfigure ();
 	LinphoneStatus terminateAllCalls ();
 
 	// ---------------------------------------------------------------------------
